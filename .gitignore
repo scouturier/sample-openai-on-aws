@@ -204,3 +204,6 @@ __marimo__/
 
 # macOS:
 .DS_Store
+
+# Local planning docs (not for commit)
+guidance-for-codex-on-amazon-bedrock/PLAN.md
