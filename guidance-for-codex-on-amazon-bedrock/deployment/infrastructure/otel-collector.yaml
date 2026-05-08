@@ -419,6 +419,12 @@ Resources:
                 action: insert
 
         exporters:
+          # Accept but drop logs and traces until we have a concrete use case
+          # — avoids ALB 4xx storms from Codex's periodic exporter retries.
+          # `debug` with verbosity=basic is ADOT's built-in sink equivalent
+          # to /dev/null for this purpose.
+          debug/sink:
+            verbosity: basic
           awsemf:
             namespace: ${MetricsNamespace}
             log_group_name: /aws/codex/metrics
@@ -428,40 +434,53 @@ Resources:
             log_retention: 7
             resource_to_telemetry_conversion:
               enabled: true
+            # Metric-name set verified against Codex 0.130.0-alpha.7 on
+            # 2026-05-08 (see PLAN.md pre-flight spike). Prior declarations
+            # referenced names (codex.code_edit_tool.*, codex.lines_of_code,
+            # codex.cost.usage, codex.token.usage) that Codex does not emit.
             metric_declarations:
-              # Overall metrics
+              # Catch-all (keeps us forward-compatible with new Codex metrics).
               - dimensions: [[OTelLib]]
                 metric_name_selectors: [".*"]
 
-              # Department and team aggregates
+              # Per-user attribution (primary dashboard dimension).
+              - dimensions: [[user.id, OTelLib]]
+                metric_name_selectors: [".*"]
+
+              # Per-model rollups.
+              - dimensions: [[model, OTelLib]]
+                metric_name_selectors: [".*"]
+              - dimensions: [[user.id, model, OTelLib]]
+                metric_name_selectors: [".*"]
+
+              # API request status (critical for error tracking — 4xx/5xx from
+              # Bedrock backend arrive as status="404" / success="false").
+              - dimensions: [[status, OTelLib]]
+                metric_name_selectors: ["codex.api_request", "codex.api_request.duration_ms"]
+              - dimensions: [[user.id, status, OTelLib]]
+                metric_name_selectors: ["codex.api_request", "codex.api_request.duration_ms"]
+
+              # Token usage breakdown by type (input|output|cached_input|reasoning_output|total).
+              - dimensions: [[token_type, OTelLib]]
+                metric_name_selectors: ["codex.turn.token_usage"]
+              - dimensions: [[user.id, token_type, OTelLib]]
+                metric_name_selectors: ["codex.turn.token_usage"]
+
+              # Session-origin rollups (cli vs. desktop vs. VS Code).
+              - dimensions: [[session_source, OTelLib]]
+                metric_name_selectors: [".*"]
+              - dimensions: [[originator, OTelLib]]
+                metric_name_selectors: [".*"]
+
+              # Department / team / cost-center if propagated via headers
+              # (generator does not emit these today; kept for operator-added
+              # header-injection downstream of distribution).
               - dimensions: [[department, OTelLib]]
                 metric_name_selectors: [".*"]
               - dimensions: [[team.id, OTelLib]]
                 metric_name_selectors: [".*"]
-              - dimensions: [[organization, OTelLib]]
-                metric_name_selectors: [".*"]
-
-              # Model usage tracking
-              - dimensions: [[model, OTelLib]]
-                metric_name_selectors: [".*"]
-
-              # Cost center tracking
               - dimensions: [[cost_center, OTelLib]]
-                metric_name_selectors: ["codex.cost.usage", "codex.token.usage"]
-
-              # Token and line types
-              - dimensions: [[type, OTelLib]]
-                metric_name_selectors: ["codex.token.usage", "codex.lines_of_code.count"]
-
-              # Tool and language usage
-              - dimensions: [[tool_name, OTelLib]]
-                metric_name_selectors: ["codex.code_edit_tool.*"]
-              - dimensions: [[language, OTelLib]]
-                metric_name_selectors: ["codex.code_edit_tool.*"]
-
-              # Code decision tracking
-              - dimensions: [[decision, OTelLib]]
-                metric_name_selectors: ["codex.code_edit_tool.decision"]
+                metric_name_selectors: [".*"]
 
         service:
           extensions: [health_check]
@@ -476,6 +495,12 @@ Resources:
               receivers: [otlp]
               processors: [attributes, resource, batch/metrics]
               exporters: [awsemf]
+            logs:
+              receivers: [otlp]
+              exporters: [debug/sink]
+            traces:
+              receivers: [otlp]
+              exporters: [debug/sink]
 
   # ECS Task Definition
   TaskDefinition:

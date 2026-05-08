@@ -1,0 +1,292 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: LiteLLM gateway on ECS Fargate - reuses existing networking and OTel collector stacks
+
+Parameters:
+  NetworkingStackName:
+    Type: String
+    Default: codex-test-networking
+    Description: Name of the networking CloudFormation stack (exports VpcId and SubnetIds)
+
+  OtelStackName:
+    Type: String
+    Default: codex-test-otel-collector
+    Description: Name of the OTel collector stack (exports CollectorEndpoint)
+
+  LiteLLMMasterKey:
+    Type: String
+    NoEcho: true
+    Description: LiteLLM master key - stored in Secrets Manager
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: Password for the RDS PostgreSQL instance
+
+  AwsRegion:
+    Type: String
+    Default: us-east-1
+
+  LiteLLMImage:
+    Type: String
+    Default: ghcr.io/berriai/litellm:main-latest
+    Description: >
+      Build a custom image FROM ghcr.io/berriai/litellm:main-latest and COPY
+      litellm_config.yaml to /app/config.yaml, then push to ECR and reference here.
+
+  AllowedCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: >
+      CIDR allowed to reach the ALB. Defaults to the VPC CIDR (internal only).
+      Set to your corporate network CIDR or a specific /32 for restricted access.
+      Do NOT set to 0.0.0.0/0 in production.
+
+Resources:
+
+  # --- Secrets ---
+
+  LiteLLMSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${AWS::StackName}/litellm-master-key"
+      SecretString: !Sub '{"LITELLM_MASTER_KEY":"${LiteLLMMasterKey}"}'
+
+  # --- IAM ---
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+      Policies:
+        - PolicyName: SecretsAccess
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref LiteLLMSecret
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  # --- Security Groups ---
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: LiteLLM ALB - restricted inbound
+      VpcId: !ImportValue
+        Fn::Sub: "${NetworkingStackName}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedCidr
+
+  TaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: LiteLLM ECS task
+      VpcId: !ImportValue
+        Fn::Sub: "${NetworkingStackName}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 4000
+          ToPort: 4000
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: LiteLLM RDS - inbound from ECS task
+      VpcId: !ImportValue
+        Fn::Sub: "${NetworkingStackName}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref TaskSecurityGroup
+
+  # --- RDS ---
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: LiteLLM RDS subnets
+      SubnetIds: !Split
+        - ","
+        - !ImportValue
+          Fn::Sub: "${NetworkingStackName}-SubnetIds"
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: litellm
+      DBInstanceClass: db.t4g.micro
+      Engine: postgres
+      EngineVersion: "16"
+      MasterUsername: litellm
+      MasterUserPassword: !Ref DBPassword
+      AllocatedStorage: "20"
+      StorageEncrypted: true
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroup
+      DeletionProtection: true
+      BackupRetentionPeriod: 7
+
+  # --- ECS ---
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${AWS::StackName}-cluster"
+      CapacityProviders: [FARGATE]
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${AWS::StackName}"
+      RetentionInDays: 30
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${AWS::StackName}-task"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: "1024"
+      Memory: "2048"
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: litellm
+          Image: !Ref LiteLLMImage
+          PortMappings:
+            - ContainerPort: 4000
+          Command: ["--config", "/app/config.yaml", "--port", "4000"]
+          Environment:
+            - Name: AWS_REGION
+              Value: !Ref AwsRegion
+            - Name: OTEL_EXPORTER
+              Value: otlp_http
+            # Forward to the deployed OTel collector ALB
+            - Name: OTEL_ENDPOINT
+              Value: !ImportValue
+                Fn::Sub: "${OtelStackName}-endpoint"
+            - Name: DATABASE_URL
+              Value: !Sub "postgresql://litellm:${DBPassword}@${RDSInstance.Endpoint.Address}:5432/litellm"
+          Secrets:
+            - Name: LITELLM_MASTER_KEY
+              ValueFrom: !Sub "${LiteLLMSecret}:LITELLM_MASTER_KEY::"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: litellm
+
+  # --- ALB ---
+
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Subnets: !Split
+        - ","
+        - !ImportValue
+          Fn::Sub: "${NetworkingStackName}-SubnetIds"
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !ImportValue
+        Fn::Sub: "${NetworkingStackName}-VpcId"
+      Protocol: HTTP
+      Port: 4000
+      TargetType: ip
+      HealthCheckPath: /health/liveliness
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  # --- ECS Service ---
+
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListener
+    Properties:
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 2
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: !Split
+            - ","
+            - !ImportValue
+              Fn::Sub: "${NetworkingStackName}-SubnetIds"
+          SecurityGroups:
+            - !Ref TaskSecurityGroup
+          AssignPublicIp: ENABLED
+      LoadBalancers:
+        - ContainerName: litellm
+          ContainerPort: 4000
+          TargetGroupArn: !Ref ALBTargetGroup
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+
+Outputs:
+  GatewayEndpoint:
+    Description: LiteLLM gateway URL - set as OPENAI_BASE_URL in Codex config
+    Value: !Sub "http://${ALB.DNSName}/v1"
+    Export:
+      Name: !Sub "${AWS::StackName}-GatewayEndpoint"
+
+  OtelEndpoint:
+    Description: OTel collector endpoint used by this deployment
+    Value: !ImportValue
+      Fn::Sub: "${OtelStackName}-endpoint"

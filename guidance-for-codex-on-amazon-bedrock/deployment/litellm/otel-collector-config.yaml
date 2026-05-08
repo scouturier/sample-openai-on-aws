@@ -1,0 +1,87 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: /
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        include_metadata: true
+      http:
+        endpoint: 0.0.0.0:4318
+        include_metadata: true
+
+processors:
+  batch/metrics:
+    timeout: 60s
+  batch/logs:
+    timeout: 10s
+
+  # LiteLLM forwards user identity as span attributes — lift them to resource attributes
+  attributes:
+    actions:
+      - key: user.email
+        from_attribute: user_email
+        action: upsert
+      - key: user.id
+        from_attribute: user_id
+        action: upsert
+      - key: model
+        from_attribute: model
+        action: upsert
+      - key: team.id
+        from_attribute: team_id
+        action: upsert
+
+  resource:
+    attributes:
+      - key: aws.account_id
+        value: ""        # set via SSM / env at deploy time
+        action: insert
+      - key: deployment.environment
+        value: "production"
+        action: insert
+
+exporters:
+  # Local testing — stdout
+  debug:
+    verbosity: basic
+
+  # Production — CloudWatch EMF
+  # Matches the dimension structure of the existing codex-test-dashboard stack.
+  awsemf:
+    namespace: LiteLLMGateway
+    log_group_name: /aws/litellm/metrics
+    dimension_rollup_option: "ZeroAndSingleDimensionRollup"
+    region: us-east-1
+    output_destination: cloudwatch
+    log_retention: 30
+    resource_to_telemetry_conversion:
+      enabled: true
+    metric_declarations:
+      - dimensions: [[OTelLib]]
+        metric_name_selectors: [".*"]
+      - dimensions: [[user.email, OTelLib]]
+        metric_name_selectors: [".*"]
+      - dimensions: [[user.id, OTelLib]]
+        metric_name_selectors: [".*"]
+      - dimensions: [[model, OTelLib]]
+        metric_name_selectors: [".*"]
+      - dimensions: [[team.id, OTelLib]]
+        metric_name_selectors: [".*"]
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: info
+      encoding: json
+      output_paths: [stdout]
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [attributes, resource, batch/metrics]
+      # Switch to [awsemf] for production deployment
+      exporters: [debug]

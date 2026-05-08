@@ -1,354 +1,152 @@
-# Guidance for Codex with Amazon Bedrock
-
-This guidance provides enterprise deployment patterns for Codex with Amazon Bedrock using existing identity providers. Integrates with your IdP (Okta, Azure AD, Auth0, Cognito User Pools) for centralized access control, audit trails, and usage monitoring across your organization.
-
-## Key Features
-
-### For Organizations
-
-- **Enterprise IdP Integration**: Leverage existing OIDC identity providers (Okta, Azure AD, Auth0, etc.)
-- **Centralized Access Control**: Manage Codex access through your identity provider
-- **No API Key Management**: Eliminate the need to distribute or rotate long-lived credentials
-- **Usage Monitoring**: Optional CloudWatch dashboards for tracking usage and costs
-- **Multi-Region Support**: Configure which AWS regions users can access Bedrock in
-- **Multi-Partition Support**: Deploy to AWS Commercial or AWS GovCloud (US) regions
-- **Multi-Platform Support**: Windows, macOS (ARM & Intel), and Linux distributions
-
-### For End Users
-
-- **Seamless Authentication**: Log in with corporate credentials
-- **Automatic Credential Refresh**: No manual token management required
-- **AWS CLI/SDK Integration**: Works with any AWS tool or SDK
-- **Multi-Profile Support**: Manage multiple authentication profiles
-- **Cross-Platform**: Works on Windows, macOS, and Linux
-
-## Table of Contents
-
-1. [Quick Start](#quick-start)
-2. [Architecture Overview](#architecture-overview)
-3. [Prerequisites](#prerequisites)
-4. [AWS Partition Support](#aws-partition-support)
-5. [What Gets Deployed](#what-gets-deployed)
-6. [Monitoring and Operations](#monitoring-and-operations)
-7. [Additional Resources](#additional-resources)
-
-## Quick Start
-
-This guidance integrates Codex with your existing OIDC identity provider (Okta, Azure AD, Auth0, or Cognito User Pools) to provide federated access to Amazon Bedrock.
-
-### What You Need
-
-**Existing Identity Provider:**
-You must have an active OIDC provider with the ability to create application registrations. The guidance federates this IdP with AWS IAM to issue temporary credentials for Bedrock access.
-
-**AWS Environment:**
-
-- AWS account with IAM and CloudFormation permissions
-- Amazon Bedrock activated in target regions
-- Python 3.10+ development environment for deployment
-
-### What Gets Deployed
-
-The deployment creates:
-
-- IAM OIDC Provider or Cognito Identity Pool for federation
-- IAM roles with scoped Bedrock access policies
-- Platform-specific installation packages (Windows, macOS, Linux)
-- Optional: OpenTelemetry monitoring infrastructure
-
-**Deployment time:** 2-3 hours for initial setup including IdP configuration.
-
-See [QUICK_START.md](QUICK_START.md) for complete step-by-step deployment instructions.
-
-## Architecture Overview
-
-This guidance uses Direct IAM OIDC federation as the recommended authentication pattern. This provides temporary AWS credentials with complete user attribution for audit trails and usage monitoring.
-
-**Alternative:** Cognito Identity Pool is also supported for legacy IdP integrations. See [Deployment Guide](assets/docs/DEPLOYMENT.md) for comparison.
-
-### Authentication Flow (Direct IAM Federation)
-
-![Architecture Diagram](assets/images/credential-flow-direct-diagram.png)
-
-1. **User initiates authentication**: User requests access to Amazon Bedrock through Codex
-2. **OIDC authentication**: User authenticates with their OIDC provider and receives an ID token
-3. **Token submission to IAM**: Application sends the OIDC ID token to Amazon Cognito
-4. **IAM returns credentials**: AWS IAM validates and returns temporary AWS credentials
-5. **Access Amazon Bedrock**: Application uses the temporary credentials to call Amazon Bedrock
-6. **Bedrock response**: Amazon Bedrock processes the request and returns the response
-
-## Prerequisites
-
-### For Deployment (IT Administrators)
-
-**Software Requirements:**
-
-- Python 3.10-3.13
-- Poetry (dependency management)
-- AWS CLI v2
-- Git
-
-**AWS Requirements:**
-
-- AWS account with appropriate IAM permissions to create:
-  - CloudFormation stacks
-  - IAM OIDC Providers or Cognito Identity Pools
-  - IAM roles and policies
-  - (Optional) Amazon Elastic Container Service (Amazon ECS) tasks and Amazon CloudWatch dashboards
-  - (Optional) Amazon Athena, AWS Glue, AWS Lambda, and Amazon Data Firehose resources
-  - (Optional) AWS CodeBuild
-- Amazon Bedrock activated in target regions
-
-**OIDC Provider Requirements:**
-
-- Existing OIDC identity provider (Okta, Azure AD, Auth0, etc.)
-- Ability to create OIDC applications
-- Redirect URI support for `http://localhost:8400/callback`
-
-### For End Users
-
-**Software Requirements:**
-
-- AWS CLI v2 (for credential process integration)
-- Codex installed
-- Web browser for SSO authentication
-
-**No AWS account required** - users authenticate through your organization's identity provider and receive temporary credentials automatically.
-
-**No Python, Poetry, or Git required** - users receive pre-built installation packages from IT administrators.
-
-### Supported AWS Regions
-
-The guidance can be deployed in any AWS region that supports:
-
-- IAM OIDC Providers or Amazon Cognito Identity Pools
-- Amazon Bedrock
-- (Optional) Amazon Elastic Container Service (Amazon ECS) tasks and Amazon CloudWatch dashboards
-- (Optional) Amazon Athena, AWS Glue, AWS Lambda, and Amazon Data Firehose resources
-- (Optional) AWS CodeBuild
-
-Both AWS Commercial and AWS GovCloud (US) partitions are supported. See [AWS Partition Support](#aws-partition-support) for details.
-
-### Bedrock Mantle and OpenAI Models
-
-Codex on Amazon Bedrock uses **Bedrock Mantle** — AWS's native OpenAI-compatible endpoint that provides access to OpenAI models through Amazon Bedrock. During setup, you can select from the following models:
-
-| Model ID | Description |
-|---|---|
-| `openai.gpt-5.4` | **Recommended default** |
-| `openai.gpt-oss-120b` | GPT-OSS 120B |
-| `openai.gpt-oss-20b` | GPT-OSS 20B |
-
-Codex CLI is configured automatically via `~/.codex/config.toml` with `model_provider = "amazon-bedrock"`. Authentication is handled through the AWS profile set up by the installer — no API key required.
-
-**Note:** OpenAI models on Bedrock are currently in limited preview. Available in US regions only: us-east-1, us-east-2, us-west-2.
-
-### Platform Support
-
-The authentication tools support all major platforms:
-
-| Platform | Architecture          | Build Method                | Installation |
-| -------- | --------------------- | --------------------------- | ------------ |
-| Windows  | x64                   | AWS CodeBuild (Nuitka)      | install.bat  |
-| macOS    | ARM64 (Apple Silicon) | Native (PyInstaller)        | install.sh   |
-| macOS    | Intel (x86_64)        | Cross-compile (PyInstaller) | install.sh   |
-| macOS    | Universal (both)      | Universal2 (PyInstaller)    | install.sh   |
-| Linux    | x86_64                | Docker (PyInstaller)        | install.sh   |
-| Linux    | ARM64                 | Docker (PyInstaller)        | install.sh   |
-
-**Build System:**
-
-The package builder automatically creates executables for all platforms using PyInstaller (macOS/Linux) and AWS CodeBuild with Nuitka (Windows). All builds create standalone executables - no Python installation required for end users.
-
-See [QUICK_START.md](QUICK_START.md#platform-builds) for detailed build configuration.
-
-## AWS Partition Support
-
-This guidance supports deployment across multiple AWS partitions with a single, unified codebase. The same CloudFormation templates and deployment process work seamlessly in both AWS Commercial and AWS GovCloud (US) regions.
-
-### Supported Partitions
-
-| Partition | Regions | Use Cases |
-|-----------|---------|-----------|
-| **AWS Commercial** (`aws`) | All regions where Bedrock is available | Standard commercial workloads |
-| **AWS GovCloud (US)** (`aws-us-gov`) | us-gov-west-1, us-gov-east-1 | US government agencies, contractors, and regulated workloads |
-
-### How It Works
-
-The guidance automatically detects the AWS partition at deployment time and configures resources appropriately:
-
-**Resource ARNs:**
-- CloudFormation uses the `${AWS::Partition}` pseudo-parameter
-- Automatically resolves to `aws` or `aws-us-gov`
-- Example: `arn:${AWS::Partition}:bedrock:*::foundation-model/*`
-
-**Service Principals:**
-- Cognito Identity service principals are partition-specific
-- Commercial: `cognito-identity.amazonaws.com`
-- GovCloud West: `cognito-identity-us-gov.amazonaws.com`
-- GovCloud East: `cognito-identity.us-gov-east-1.amazonaws.com`
-- IAM role trust policies automatically use the correct principal based on region
-
-**S3 Endpoints:**
-- Commercial: `s3.region.amazonaws.com`
-- GovCloud: `s3.region.amazonaws.com`
-
-### Deploying to AWS GovCloud
-
-Follow the same [Quick Start](#quick-start) instructions with your GovCloud credentials active. During `cxwb init`, select a GovCloud region (us-gov-west-1 or us-gov-east-1) and the wizard will automatically configure GovCloud-compatible models and endpoints.
-
-**GovCloud-Specific Considerations:**
-
-1. **Credentials:** GovCloud requires separate AWS credentials from commercial accounts
-2. **Model IDs:** GovCloud availability for OpenAI models is not yet available — check AWS documentation for current status
-3. **FIPS Endpoints:** Cognito hosted UI uses `{prefix}.auth-fips.{region}.amazoncognito.com`
-4. **Managed Login:** Branding must be created for each Cognito app client
-
-### Validation
-
-After deployment, verify the correct partition configuration:
-
-```bash
-# Check IAM role ARN uses correct partition
-aws iam get-role \
-  --role-name BedrockCognitoFederatedRole \
-  --region <region> \
-  --query 'Role.Arn'
-
-# Expected ARN formats:
-# Commercial: arn:aws:iam::ACCOUNT:role/BedrockCognitoFederatedRole
-# GovCloud: arn:aws-us-gov:iam::ACCOUNT:role/BedrockCognitoFederatedRole
+# Guidance for Codex on Amazon Bedrock
+
+Enterprise deployment patterns for [Codex](https://openai.com/codex) running
+against [Amazon Bedrock](https://aws.amazon.com/bedrock/) (OpenAI models:
+`openai.gpt-5.4`, `openai.gpt-oss-*`). Two patterns, in recommended order:
+pick the first your org can actually run.
+
+> **Decision rule:** If you can run IAM Identity Center, use IAM Identity
+> Center. If you can't and you need centralized enforcement or multi-provider
+> fan-out, run the Gateway.
+
+## Deployment paths
+
+| | **IAM Identity Center** (recommended) | **Gateway** (alternative) |
+|---|---|---|
+| Developer setup | `aws sso login` via AWS CLI v2 | OIDC JWT + `OPENAI_BASE_URL` |
+| Binary distribution | Signed AWS CLI v2 (winget/MSI/brew/MDM) | None |
+| Infra to run | None (free AWS control plane) | ECS Fargate + ALB + Postgres |
+| Bedrock auth | Per-user federated IAM | Gateway IAM task role |
+| Per-user attribution | CloudTrail `userIdentity` | JWT claims via OTel |
+| Hard per-user budgets | No | Yes |
+| Codex provider | Native `amazon-bedrock` | Generic `openai` |
+
+Full comparison + prereq checklists: **[docs/01-decide.md](docs/01-decide.md)**.
+
+## Identity chain
+
+The invariant every path preserves: the SSO user identity flows end-to-end.
+
+```
+Corporate IdP  ──(SAML+SCIM)──▶  AWS IAM Identity Center
+                                        │
+                                        ▼
+                         AWSReservedSSO_CodexBedrockUser_* session
+                                        │
+                                        ▼
+                           Bedrock customer-managed policy
+                                        │
+                   ┌────────────────────┼────────────────────┐
+                   ▼                    ▼                    ▼
+           CloudTrail            Bedrock Converse     CloudWatch (OTel)
+        userIdentity = UPN      (native SigV4 path)   user.id = UPN header
+                   │
+                   ▼
+              CUR (cost)
 ```
 
-### Backward Compatibility
+## Start here
 
-✅ **All changes are fully backward compatible**
+1. **[Decide](docs/01-decide.md)** — three-path comparison; pick your path in
+   ≤10 minutes.
+2. **Deploy** — one canonical doc per path.
+   - [IAM Identity Center](docs/deploy-identity-center.md) — **ready**.
+   - [Gateway](docs/deploy-gateway.md) — **ready**.
+3. **Operate**
+   - [Monitoring + cost attribution](docs/operate-monitoring.md)
+   - [Troubleshooting](docs/operate-troubleshooting.md)
+   - [Region / model matrix](docs/reference-regions.md)
 
-- Existing commercial deployments continue to work without modification
-- CloudFormation updates can be applied to existing stacks
-- No changes to user-facing functionality
-- No data migration required
+## The short version (IAM Identity Center)
 
-## What Gets Deployed
+### Admin
 
-### Authentication Infrastructure
+```bash
+# 1. Deploy the Bedrock auth stack
+aws cloudformation deploy \
+  --stack-name codex-bedrock-idc \
+  --template-file deployment/infrastructure/bedrock-auth-idc.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region us-west-2
 
-The `cxwb deploy` command creates:
+# 2. Create a CodexBedrockUser permission set in IdC; attach the
+#    customer-managed policy from the stack; assign to your Codex group.
 
-**IAM Resources:**
+# 3. Generate the developer bundle
+deployment/scripts/generate-codex-sso-config.sh \
+  --start-url https://d-xxxxxxxxxx.awsapps.com/start \
+  --sso-region us-east-1 \
+  --account-id 123456789012 \
+  --permission-set CodexBedrockUser \
+  --bedrock-region us-west-2 \
+  --profile-name codex \
+  --outdir ./dist/codex-sso
+```
 
-- IAM OIDC Provider (for Direct IAM federation) or Cognito Identity Pool (for legacy IdP)
-- IAM role with trust relationship for federated access
-- IAM policies scoped to:
-  - Bedrock model invocation in configured regions
-  - CloudWatch metric publishing (if monitoring enabled)
+Distribute `./dist/codex-sso/` (zip + S3 presigned URL, MDM payload, etc.).
 
-**User Distribution Packages:**
+### Developer
 
-- Platform-specific executables (Windows, macOS ARM64/Intel, Linux x64/ARM64)
-- Installation scripts that configure AWS CLI credential process
-- Pre-configured settings (OIDC provider, model selection, monitoring endpoints)
+```bash
+./install.sh                      # writes fenced managed blocks to
+                                  # ~/.aws/config and ~/.codex/config.toml
+aws sso login --profile codex
+codex                             # native amazon-bedrock provider
+```
 
-### Distribution Options (Optional)
+See **[deploy-identity-center.md](docs/deploy-identity-center.md)** for the
+full walkthrough (validation, CloudTrail attribution, optional OTel, teardown).
 
-After building packages, you can share them with users in three ways:
+## What's in this repo
 
-| Method                | Best For               | Authentication                 |
-| --------------------- | ---------------------- | ------------------------------ |
-| **Manual Sharing**    | Any size team          | None                           |
-| **Presigned S3 URLs** | Automated distribution | None                           |
-| **Landing Page**      | Self-service portal    | IdP (Okta/Azure/Auth0/Cognito) |
+```
+guidance-for-codex-on-amazon-bedrock/
+├── README.md                              ← you are here
+├── docs/
+│   ├── 01-decide.md                       ← two-path comparison + prereqs
+│   ├── deploy-identity-center.md          ← canonical IdC deployment
+│   ├── deploy-gateway.md                  ← canonical Gateway deployment
+│   ├── operate-monitoring.md              ← monitoring + cost attribution
+│   ├── operate-troubleshooting.md         ← cross-path failure modes
+│   └── reference-regions.md               ← region / model matrix
+├── deployment/
+│   ├── infrastructure/
+│   │   ├── bedrock-auth-idc.yaml          ← IdC Bedrock policy + role
+│   │   ├── networking.yaml                ← VPC for optional OTel stack
+│   │   ├── otel-collector.yaml            ← ECS Fargate OTel collector
+│   │   └── codex-otel-dashboard.yaml      ← CloudWatch usage dashboard
+│   ├── litellm/                           ← LiteLLM gateway (alternative)
+│   └── scripts/
+│       ├── generate-codex-sso-config.sh   ← admin-side distributable generator
+│       └── deploy-otel-stack.sh           ← OTel stack one-shot deploy
+├── specs/
+│   ├── README.md                          ← agent-facing spec (invariants)
+│   ├── PLAN.md                            ← progress tracker (authoritative)
+│   └── 02-otel-dashboard.md, 03-*        ← working notes, being folded in
+└── assets/images/                         ← architecture + dashboard images
+```
 
-**Manual Sharing:** Zip the `dist/` folder and share via email or internal file sharing. No additional infrastructure required.
+## Bedrock models
 
-**Presigned URLs:** Generate time-limited S3 URLs for direct downloads. Automated but requires S3 bucket setup.
+Currently supported (as of 2026-05-08):
 
-**Landing Page:** Self-service portal with IdP authentication, platform detection, and custom domain support. Full automation with compliance features.
+| Model ID | Notes |
+|---|---|
+| `openai.gpt-5.4` | **Recommended default.** Routes through Bedrock Mantle. |
+| `openai.gpt-oss-120b` | GPT-OSS 120B (Converse-compatible). |
+| `openai.gpt-oss-20b` | GPT-OSS 20B (Converse-compatible). |
 
-See [Distribution Comparison](assets/docs/distribution/comparison.md) for detailed setup guides.
+OpenAI models on Bedrock are available in US regions (`us-east-1`,
+`us-east-2`, `us-west-2`). See `docs/reference-regions.md` for the full
+matrix.
 
-### Monitoring Infrastructure (Optional)
+## Status
 
-Enable usage visibility with OpenTelemetry monitoring stack:
-
-**Components:**
-
-- VPC and networking resources (or use existing VPC)
-- ECS Fargate cluster running OpenTelemetry collector
-- Application Load Balancer for metric ingestion
-- CloudWatch dashboards with real-time usage metrics
-- DynamoDB for metrics aggregation
-
-**Optional Analytics Add-On:**
-
-- Kinesis Data Firehose streaming metrics to S3
-- S3 data lake for long-term storage
-- Amazon Athena for SQL queries on historical data
-- AWS Glue Data Catalog for schema management
-
-See [QUICK_START.md](QUICK_START.md) for step-by-step deployment instructions.
-
-## Monitoring and Operations
-
-Optional OpenTelemetry monitoring provides comprehensive usage visibility for cost attribution, capacity planning, and productivity insights.
-
-### Available Metrics
-
-**Token Economics:**
-
-- Input/output/cache token consumption by user, model, and type
-- Prompt caching effectiveness (hit rates, token savings)
-- Cost attribution by user, team, or department
-
-**Code Activity:**
-
-- Lines of code written vs accepted (productivity signal)
-- File operations breakdown (edits, searches, reads)
-- Programming language distribution
-
-**Operational Health:**
-
-- Active users and top consumers
-- Usage patterns (hourly/daily heatmaps)
-- Authentication and API error rates
-
-### Infrastructure
-
-The monitoring stack (deployed with `cxwb deploy monitoring`) includes:
-
-- ECS Fargate running OpenTelemetry collector
-- Application Load Balancer for metric ingestion
-- CloudWatch dashboards for real-time visualization
-- Optional: S3 data lake + Athena for historical analysis
-
-See [Monitoring Guide](assets/docs/MONITORING.md) for setup details and dashboard examples.
-See [Analytics Guide](assets/docs/ANALYTICS.md) for SQL queries on historical data.
-
-## Additional Resources
-
-### Getting Started
-
-- [Quick Start Guide](QUICK_START.md) - Step-by-step deployment walkthrough
-- [CLI Reference](assets/docs/CLI_REFERENCE.md) - Complete command reference for the `cxwb` tool
-
-### Architecture & Deployment
-
-- [Architecture Guide](assets/docs/ARCHITECTURE.md) - System architecture and design decisions
-- [Deployment Guide](assets/docs/DEPLOYMENT.md) - Advanced deployment options
-- [Distribution Comparison](assets/docs/distribution/comparison.md) - Presigned URLs vs Landing Page
-- [Local Testing Guide](assets/docs/LOCAL_TESTING.md) - Testing before deployment
-
-### Monitoring & Analytics
-
-- [Monitoring Guide](assets/docs/MONITORING.md) - OpenTelemetry setup and dashboards
-- [Analytics Guide](assets/docs/ANALYTICS.md) - S3 data lake and Athena SQL queries
-
-### Identity Provider Setup
-
-- [Okta](assets/docs/providers/okta-setup.md)
-- [Microsoft Entra ID (Azure AD)](assets/docs/providers/microsoft-entra-id-setup.md)
-- [Auth0](assets/docs/providers/auth0-setup.md)
+Migration from the prior single-path layout is in progress. IdC path is
+end-to-end validated (time-to-first-successful-Bedrock-call: 275s on Mac,
+2026-05-08). Gateway path infra + doc are complete. Tracked in
+**[specs/PLAN.md](specs/PLAN.md)**.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).
