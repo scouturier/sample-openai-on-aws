@@ -119,10 +119,6 @@ guidance-for-codex-on-amazon-bedrock/
 │   └── scripts/
 │       ├── generate-codex-sso-config.sh   ← admin-side distributable generator
 │       └── deploy-otel-stack.sh           ← OTel stack one-shot deploy
-├── specs/
-│   ├── README.md                          ← agent-facing spec (invariants)
-│   ├── PLAN.md                            ← progress tracker (authoritative)
-│   └── 02-otel-dashboard.md, 03-*        ← working notes, being folded in
 └── assets/images/                         ← architecture + dashboard images
 ```
 
@@ -144,8 +140,7 @@ matrix.
 
 Migration from the prior single-path layout is in progress. IdC path is
 end-to-end validated (time-to-first-successful-Bedrock-call: 275s on Mac,
-2026-05-08). Gateway path infra + doc are complete. Tracked in
-**[specs/PLAN.md](specs/PLAN.md)**.
+2026-05-08). Gateway path infra + doc are complete.
 
 ## License
 

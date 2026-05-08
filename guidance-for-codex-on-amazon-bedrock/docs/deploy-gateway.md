@@ -109,8 +109,7 @@ aws cloudformation deploy \
     AllowedCidr=10.0.0.0/16
 ```
 
-Notes on the parameter defaults (hardening TODOs — see
-`specs/PLAN.md`):
+Notes on the parameter defaults (hardening TODOs):
 
 - `AwsRegion` defaults to `us-east-1`; **always override** it to the region
   where Bedrock is actually enabled.
@@ -221,8 +220,7 @@ All of these cover the pattern above; pick by what your org already operates.
 - **Region mismatch footgun.** Template default `AwsRegion=us-east-1`;
   override it on every deploy.
 - **`gpt-5.4` model alias.** Shipped in `litellm_config.yaml` as a
-  placeholder; verify it resolves when GPT-5.4 launches (pre-flight in
-  `specs/PLAN.md`).
+  placeholder; verify it resolves when GPT-5.4 launches.
 - **Full Codex-client leg not yet re-run.** The 2026-05-08 E2E verified the
   gateway's OpenAI wire format via `curl`; the `codex` binary against the
   gateway is re-run at the GPT-5.4 pre-flight.

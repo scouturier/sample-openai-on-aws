@@ -17,7 +17,7 @@ getting-started guide — if that guide disagrees, it wins.
 Verified 2026-05-08 via `aws bedrock list-foundation-models` against the
 sandbox account. GPT-5.4 availability confirmed for `us-west-2` from the
 authoritative AWS getting-started guide ("Production region"); re-verify at
-launch per the PLAN pre-flight.
+launch.
 
 | Model ID | `us-west-2` | `us-east-1` | `us-east-2` | Notes |
 |---|---|---|---|---|

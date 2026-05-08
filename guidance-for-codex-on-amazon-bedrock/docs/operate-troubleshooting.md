@@ -1,9 +1,7 @@
 # Operate — Troubleshooting
 
-Known failure modes across the three deploy paths, harvested from the
-sandbox E2Es in `specs/PLAN.md`. Not exhaustive — add entries as new
-failure modes surface. For pre-GPT-5.4-launch caveats, see the pre-flight
-checklist in `specs/PLAN.md`.
+Known failure modes across the three deploy paths, harvested from
+sandbox E2Es. Not exhaustive — add entries as new failure modes surface.
 
 Symptoms are grouped by path. The **All paths** section applies
 regardless of how you deployed.

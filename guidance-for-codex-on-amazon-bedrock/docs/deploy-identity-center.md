@@ -133,7 +133,7 @@ aws sso login --profile codex --no-browser
 The bundled helper auto-launches plain `aws sso login` on cache miss and will
 fail on headless hosts. Pre-warm with `--no-browser` before starting Codex;
 re-run when the 8h token expires. Fully non-interactive fleet/CI pre-warm is
-tracked in `specs/PLAN.md`.
+not yet supported.
 
 ### Uninstall
 
@@ -251,15 +251,12 @@ deployment/scripts/generate-codex-sso-config.sh \
 time and bakes it into the `[otel]` block as a static `x-user-id` header;
 every metric carries that dimension.
 
-See `specs/PLAN.md` for current validation status of the Codex-client metrics
-round-trip.
-
 ## Known gotchas
 
 - **Session duration.** 8h default can interrupt long Codex runs; raise up to
   12h on the permission set, or accept `aws sso login` re-auth as UX.
 - **GovCloud.** IdC works in GovCloud but must be enabled separately; FedRAMP
-  parity is an open question (`specs/PLAN.md`).
+  parity is an open question.
 - **Single-region IdC.** Control plane is regional; Bedrock calls can target
   any region the permission set allows.
 
