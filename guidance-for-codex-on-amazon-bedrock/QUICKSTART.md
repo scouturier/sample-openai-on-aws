@@ -182,11 +182,12 @@ When `cxwb` deploys the LiteLLM reference:
 
 | Model ID | Notes |
 |----------|-------|
-| `openai.gpt-5.4` | **Recommended default.** Served via Bedrock Mantle. |
+| `openai.gpt-5.5` | Latest model. Bedrock Mantle. `us-east-2` only. |
+| `openai.gpt-5.4` | **Recommended default.** Bedrock Mantle. `us-east-2`, `us-west-2`. |
 | `openai.gpt-oss-120b` | GPT-OSS 120B (Converse-compatible). |
 | `openai.gpt-oss-20b` | GPT-OSS 20B (Converse-compatible). |
 
-**Regions:** Available in `us-east-1`, `us-east-2`, `us-west-2`
+**Regions:** GPT-5.5: `us-east-2` only. GPT-5.4: `us-east-2`, `us-west-2`.
 
 Full region × model matrix: **[docs/reference-regions.md](docs/reference-regions.md)**
 
